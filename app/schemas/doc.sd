@@ -1,0 +1,117 @@
+schema doc {
+    document doc {
+        field doc_id type string {
+            indexing: attribute | summary
+        }
+        field title type string {
+            indexing: attribute | summary
+        }
+        field page_number type int {
+            indexing: attribute | summary
+        }
+        field chunk_number type int {
+            indexing: attribute | summary
+        }
+        field label type string {
+            indexing: attribute | summary 
+        }
+        field heading_levels type array<int> {
+            indexing: attribute | summary 
+        }
+        
+        field headings type string {
+            indexing: index | summary
+            match: text
+            index: enable-bm25
+        }
+        field text type string {
+            indexing: index | summary
+            match: text
+            index: enable-bm25
+        }
+        
+        field language type string {
+            indexing: "en" | set_language 
+        }
+        
+        field text_format type string {
+            indexing: attribute | summary
+            attribute: fast-search
+        }
+    }
+
+    document-summary ui-summary {
+        summary title {}
+        summary page_number {}
+        summary headings {}
+        summary heading_levels {}
+    }
+    
+    field embedding type tensor<float>(v[384]) {
+      indexing: input headings." ".input text | embed | attribute
+      attribute {
+        distance-metric: angular
+      }
+    }
+
+    fieldset all_text {
+        fields: headings, text
+    }
+
+    rank-profile bm25 {
+        function bm25_score() {
+            expression: bm25(headings) + bm25(text)
+        }
+        first-phase {
+            expression: bm25_score
+        }
+        match-features: bm25(headings) bm25(text) bm25_score
+    }
+
+    rank-profile semantic {
+        inputs {
+            query(e) tensor<float>(v[384])
+        }
+        function cosine() {
+            expression: closeness(field, embedding)
+        }
+        first-phase {
+            expression: cosine
+        }
+        match-features: cosine
+    }
+
+    rank-profile hybrid-rrf {
+        inputs {
+            query(e) tensor<float>(v[384])
+        }
+        function bm25_score() {
+            expression: bm25(headings) + bm25(text)
+        }
+        function cosine() {
+            expression: closeness(field, embedding)
+        }
+        global-phase {
+            rerank-count: 100
+            expression: reciprocal_rank_fusion(bm25_score, cosine)
+        }
+        match-features: bm25(headings) bm25(text) bm25_score cosine
+    }
+   
+    rank-profile hybrid-norm {
+        inputs {
+            query(e) tensor<float>(v[384])
+            }
+        function bm25_score() {
+            expression: bm25(headings) + bm25(text)
+        }
+        function cosine() {
+            expression: closeness(field, embedding)
+        }
+        global-phase {
+            rerank-count: 100
+            expression: normalize_linear(bm25_score) + normalize_linear(cosine)
+        }
+        match-features: bm25(headings) bm25(text) bm25_score cosine    
+    }
+}
